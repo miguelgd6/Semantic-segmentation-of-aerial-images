@@ -1,12 +1,29 @@
+
 import os 
 import re
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from patchify import patchify
 from pathlib import Path
 from PIL import Image
 
+import torch
+import torch.nn as nn
+import segmentation_models_pytorch as smp
+
+from Dataset import SegmentationDataset
+from torch.utils.data import DataLoader
+
+import ssl # Needed for avoiding expired SSL certify related issues 
+ssl._create_default_https_context = ssl._create_unverified_context
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SRC_PATH = 'src_data'
 DST_FOLDERS = ['train', 'test', 'val']
+EPOCHS = 50
+BS = 4
 
 def TrainTestSplit( src = SRC_PATH ): 
     
@@ -70,4 +87,79 @@ def CreatePatches(src, dest):
                 num = i * patches.shape[1] + j
                 patch.save(f"{dest}/{file_name_wo_ext}_tile_{tile_num}_patch_{num}.png")
 
-TrainTestSplit()
+
+if __name__ == '__main__':
+
+    # Function for creating the files datasets if needed 
+    # TrainTestSplit()
+
+    # if images are already reorganized, instantiate datasets 
+    train_ds = SegmentationDataset(path_name='train')
+    train_dataloader = DataLoader(train_ds, batch_size=BS, shuffle=True)
+    val_ds = SegmentationDataset(path_name='val')
+    val_dataloader = DataLoader(val_ds, batch_size=BS, shuffle=True)
+    
+    # instantiate model and define hyperparameter 
+    model = smp.FPN(
+        encoder_name='se_resnext50_32x4d', 
+        encoder_weights='imagenet', 
+        classes=6, 
+        activation='sigmoid'
+    )
+
+    model.to(DEVICE)
+
+    optimizer = torch.optim.Adam([ 
+        dict(params=model.parameters(), lr=0.0001),
+    ])
+
+    # Training the model
+    criterion = nn.CrossEntropyLoss()
+    # criterion = smp.losses.DiceLoss(mode='multiclass')
+    train_losses, val_losses = [], []
+
+    for e in range(EPOCHS):
+        model.train()
+        running_train_loss, running_val_loss = 0, 0
+        for i, data in enumerate(train_dataloader): 
+            #training phase 
+            image_i, mask_i = data
+            image = image_i.to(DEVICE)
+            mask = mask_i.to(DEVICE)
+
+            # reset gradients
+            optimizer.zero_grad()
+            # forward
+            output = model(image.float())
+
+            #calc losses 
+            train_loss = criterion(output.float(), mask.long())
+
+            # back propagation 
+            train_loss.backward()
+            optimizer.step() #update weights
+
+            running_train_loss += train_loss.item()
+        train_losses.append(running_train_loss)
+
+        # validation
+        model.eval()
+        with torch.no_grad(): # not need to estimate gradints while evaluation
+            for i, data in enumerate(val_dataloader):
+                image_i, mask_i = data
+                image = image_i.to(DEVICE)
+                mask = mask_i.to(DEVICE)
+
+                #forward 
+                output = model(image.float())
+
+                #calc losses 
+                val_loss = criterion(output.float(), mask.long())
+                running_val_loss += val_loss
+        val_losses.append(running_val_loss)
+
+        print(f"Epoch: {e}: Train Loss: {running_train_loss}, Val Loss: {running_val_loss}")
+
+    sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
+    sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
+    torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict.pth")
