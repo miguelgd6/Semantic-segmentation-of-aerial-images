@@ -1,4 +1,3 @@
-
 import os 
 import re
 import numpy as np
@@ -8,12 +7,14 @@ import seaborn as sns
 from patchify import patchify
 from pathlib import Path
 from PIL import Image
+import cv2
 
 import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
+import torchmetrics 
 
-from Dataset import SegmentationDataset
+from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
 import ssl # Needed for avoiding expired SSL certify related issues 
@@ -25,7 +26,51 @@ DST_FOLDERS = ['train', 'test', 'val']
 EPOCHS = 50
 BS = 4
 
-def TrainTestSplit( src = SRC_PATH ): 
+class SegmentationDataset(Dataset):
+    
+    """Create Semantic Segmentation Dataset. Read images, apply augmentations, and process transformations
+
+    Args:
+        Dataset (image): Aerial Drone Images
+    """
+    # CLASSES = {'building': 44, 'land': 91, 'road':172, 'vegetation':212, 'water':171, 'unlabeled':155}
+    # CLASSES_KEYS = list(CLASSES.keys())
+    
+    def __init__(self, path_name) -> None:
+        super().__init__()
+        self.image_names = os.listdir(f"{path_name}/images")
+        self.image_paths = [f"{path_name}/images/{i}" for i in self.image_names]
+        self.masks_names = os.listdir(f"{path_name}/masks")
+        self.masks_paths = [f"{path_name}/masks/{i}" for i in self.masks_names]
+        
+        # filter all images that do not exist in both folders
+        self.img_stem = [Path(i).stem for i in self.image_paths]
+        self.msk_stem = [Path(i).stem for i in self.masks_paths]
+        self.img_msk_stem = set(self.img_stem) & set(self.msk_stem)
+        self.image_paths = [i for i in self.image_paths if (Path(i).stem in self.img_msk_stem)]
+
+
+    def convert_mask(self, mask):
+        mask[mask == 155] = 0  # unlabeled
+        mask[mask == 44] = 1  # building
+        mask[mask == 91] = 2  # land
+        mask[mask == 171] = 3  # water
+        mask[mask == 172] = 4  # road
+        mask[mask == 212] = 5  # vegetation
+        return mask   
+
+    def __len__(self):
+        return len(self.img_msk_stem)
+    
+    def __getitem__(self, index):
+        image = cv2.imread(self.image_paths[index])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = image.transpose((2, 0, 1))  #structure: BS, C, H, W
+        mask =  cv2.imread(self.masks_paths[index], 0)
+        mask = self.convert_mask(mask)
+        return image, mask
+    
+def DataPreparation( src = SRC_PATH ): 
     
     for path_name, _, file_name in os.walk(src): 
         for f in file_name:
@@ -65,6 +110,7 @@ def TrainTestSplit( src = SRC_PATH ):
                         CreatePatches(src, dest)
 
 def CreatePatches(src, dest):
+
     path_split = os.path.split(src)
     tile_num = re.findall(r'\d+', path_split[0])[0]
     image = Image.open(src)
@@ -87,11 +133,7 @@ def CreatePatches(src, dest):
                 num = i * patches.shape[1] + j
                 patch.save(f"{dest}/{file_name_wo_ext}_tile_{tile_num}_patch_{num}.png")
 
-
-if __name__ == '__main__':
-
-    # Function for creating the files datasets if needed 
-    # TrainTestSplit()
+def ModelTraining():
 
     # if images are already reorganized, instantiate datasets 
     train_ds = SegmentationDataset(path_name='train')
@@ -102,7 +144,7 @@ if __name__ == '__main__':
     # instantiate model and define hyperparameter 
     model = smp.FPN(
         encoder_name='se_resnext50_32x4d', 
-        encoder_weights='imagenet', 
+        encoder_weights='imagenet',     
         classes=6, 
         activation='sigmoid'
     )
@@ -115,6 +157,7 @@ if __name__ == '__main__':
 
     # Training the model
     criterion = nn.CrossEntropyLoss()
+    
     # criterion = smp.losses.DiceLoss(mode='multiclass')
     train_losses, val_losses = [], []
 
@@ -129,6 +172,7 @@ if __name__ == '__main__':
 
             # reset gradients
             optimizer.zero_grad()
+
             # forward
             output = model(image.float())
 
@@ -160,6 +204,105 @@ if __name__ == '__main__':
 
         print(f"Epoch: {e}: Train Loss: {running_train_loss}, Val Loss: {running_val_loss}")
 
-    sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
-    sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
     torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict.pth")
+    
+    # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
+    # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
+
+def ModelEvaluation(): 
+
+    # Dataset and Dataloader
+    test_ds = SegmentationDataset(path_name='test')
+    test_dataloader = DataLoader(test_ds, batch_size=1, shuffle=True)
+
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    # Model setup
+    model = smp.FPN(
+        encoder_name='se_resnext50_32x4d', 
+        encoder_weights='imagenet', 
+        classes=6, 
+        activation='sigmoid',
+    )
+    model.to(DEVICE)
+
+    # load weights
+    model.load_state_dict(torch.load('models/FPN_epochs_50_CEloss_statedict.pth'))
+
+    # Model Evaluation
+    pixel_accuracies = [] 
+    intersection_over_unions = []
+    metric_iou = torchmetrics.JaccardIndex(num_classes=6, task='multiclass').to(DEVICE)
+
+    with torch.no_grad():
+        for data in test_dataloader:
+            inputs, outputs = data
+            true = outputs.to(torch.float32) 
+            pred = model(inputs.to(DEVICE).float()) 
+            _, predicted = torch.max(pred, 1) 
+            true = true.to(DEVICE)
+            correct_pixels = (true == predicted).sum().item()
+            total_pixels = true.size(1) * true.size(2)
+            pixel_accuracies.append(correct_pixels / total_pixels)
+            iou = metric_iou(predicted.float(), true).item()
+            intersection_over_unions.append(iou)
+
+    # Median Accuracy
+    print(f"Median Pixel Accuracy: {np.median(pixel_accuracies) * 100 }")
+    print(f"Median IoU: {np.median(intersection_over_unions) * 100 }")
+
+    # Pick a test image and show it
+    image_test, mask = next(iter(test_dataloader))
+    plt.imshow(np.transpose(image_test[0, :, :, :].cpu().numpy(), (1, 2, 0)))
+
+    # EVALUATE MODEL
+    # create preds
+    with torch.no_grad():
+        image_test = image_test.float().to(DEVICE)
+        output = model(image_test)
+
+    #
+    output_cpu = output.cpu().squeeze().numpy()
+    output_cpu = output_cpu.transpose((1, 2, 0))
+    output_cpu = output_cpu.argmax(axis=2)
+    output_cpu.shape
+
+    # trick to cover all classes
+    # use at least one pixel for each class for both images
+    required_range = list(range(6))
+    output_cpu[0, 0] = 0
+    output_cpu[0, 1] = 1
+    output_cpu[0, 2] = 2
+    output_cpu[0, 3] = 3
+    output_cpu[0, 4] = 4
+    output_cpu[0, 5] = 5
+
+    mask[0, 0, 0] = 0
+    mask[0, 0, 1] = 1
+    mask[0, 0, 2] = 2
+    mask[0, 0, 3] = 3
+    mask[0, 0, 4] = 4
+    mask[0, 0, 5] = 5
+
+    fig, axs = plt.subplots(nrows=1, ncols=2)
+    fig.suptitle('True and Predicted Mask')
+    axs[0].imshow(mask[0, :, :])
+    axs[1].imshow(output_cpu)
+    axs[0].set_title("True Mask")
+    axs[1].set_title("Predicted Mask")
+    plt.show()
+
+def main(): 
+
+    # Function for creating the files datasets if needed 
+    # DataPreparation()
+    
+    # Function for model training if needed 
+    # ModelTraining()
+
+    # Function for model evaluation
+    ModelEvaluation()
+
+    
+
+if __name__ == '__main__':
+    main()
