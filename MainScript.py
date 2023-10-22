@@ -209,13 +209,15 @@ def ModelTraining():
     # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
     # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
 
-def ModelEvaluation(): 
+def ModelEvaluation(img_index): 
 
     # Dataset and Dataloader
     test_ds = SegmentationDataset(path_name='test')
-    test_dataloader = DataLoader(test_ds, batch_size=10, shuffle=True)
+    test_dataloader = DataLoader(test_ds, batch_size=45, shuffle=False)
 
+    # Charging device in GPU 
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
     # Model setup
     model = smp.FPN(
         encoder_name='se_resnext50_32x4d', 
@@ -235,38 +237,55 @@ def ModelEvaluation():
 
     with torch.no_grad():
         for data in test_dataloader:
-            inputs, outputs = data
-            true = outputs.to(torch.float32) 
-            pred = model(inputs.to(DEVICE).float()) 
+
+            imgs_test, masks_test = data
+            imgs_test = imgs_test.to(DEVICE).float()
+            masks_test = masks_test.to(DEVICE).to(torch.float32) 
+
+            pred = model(imgs_test) 
+
             _, predicted = torch.max(pred, 1) 
-            true = true.to(DEVICE)
-            correct_pixels = (true == predicted).sum().item()
-            total_pixels = true.size(1) * true.size(2)
+            correct_pixels = (masks_test == predicted).sum().item()
+            total_pixels = masks_test.size(1) * masks_test.size(2)
             pixel_accuracies.append(correct_pixels / total_pixels)
-            iou = metric_iou(predicted.float(), true).item()
+            iou = metric_iou(predicted.float(), masks_test).item()
             intersection_over_unions.append(iou)
 
     # Median Accuracy
     print(f"Median Pixel Accuracy: {np.median(pixel_accuracies) * 100 }")
     print(f"Median IoU: {np.median(intersection_over_unions) * 100 }")
 
-    # Pick some test images and show it
-    images_dict = {}
-    image_test, mask = next(iter(test_dataloader))
-
-    plt.imshow(np.transpose(image_test[0, :, :, :].cpu().numpy(), (1, 2, 0)))
-
-    # EVALUATE MODEL
-    # create preds
+    # showing specific image
+    test_dataloader = DataLoader(test_ds, batch_size=1, shuffle=False)
+    for index, data in enumerate(test_dataloader):
+        if index == img_index:
+             image_test, mask = data
+        
     with torch.no_grad():
         image_test = image_test.float().to(DEVICE)
         output = model(image_test)
 
+    img_og = np.transpose(image_test[0, :, :, :].cpu().numpy(), (1, 2, 0))
+    mask_og = mask[0, :, :]
+
+    predicted_mask = output.cpu().squeeze().numpy()
+    predicted_mask = predicted_mask.transpose((1, 2, 0))
+    predicted_mask = predicted_mask.argmax(axis=2)
+     
+    fig, axs = plt.subplots(nrows=1, ncols=2)
+    fig.suptitle('True and Predicted Mask')
+    
+    axs[0].imshow(mask_og)
+    axs[1].imshow(predicted_mask)
+
+    axs[0].set_title(f"reference mask:")
+    axs[1].set_title(f"predicted mask:")
+    
+    plt.show()
+
     #
-    output_cpu = output.cpu().squeeze().numpy()
-    output_cpu = output_cpu.transpose((1, 2, 3, 0)) # transpose just reorganize dimensions 
-    output_cpu = output_cpu.argmax(axis=3) # adjust size to biggest element 
-    output_cpu.shape
+    # output_cpu = output_cpu.transpose((1, 2, 3, 0)) # transpose just reorganize dimensions 
+    # output_cpu = output_cpu.argmax(axis=3) # adjust size to biggest element 
 
     # trick to cover all classes
     # use at least one pixel for each class for both images
@@ -283,22 +302,10 @@ def ModelEvaluation():
     # mask[:, 0, 2] = 2
     # mask[:, 0, 3] = 3
     # mask[:, 0, 4] = 4
+    
     # mask[:, 0, 5] = 5
 
-    fig, axs = plt.subplots(nrows=2, ncols=2)
-    fig.suptitle('True and Predicted Mask')
     
-    for i in range(2):
-        axs[i, 0].imshow(mask[i, :, :])
-        axs[i, 1].imshow(output_cpu[i])
-    
-        # axs[i, 0].set_title("True Mask")
-        # axs[i, 1].set_title("Predicted Mask")
-
-        #axs[i, 0].set_title(f"pixel_accuracies: {pixel_accuracies[i]}")
-        axs[i, 1].set_title(f"pixel_accuracies: {pixel_accuracies[i]}")
-    
-    plt.show()
 
 def main(): 
 
@@ -309,7 +316,7 @@ def main():
     # ModelTraining()
 
     # Function for model evaluation
-    ModelEvaluation()
+    ModelEvaluation(33)
 
     
 
