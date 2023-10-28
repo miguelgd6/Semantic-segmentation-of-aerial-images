@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchmetrics 
-
+import albumentations as A
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
@@ -304,19 +304,126 @@ def ModelEvaluation(img_index):
     # mask[:, 0, 4] = 4
     
     # mask[:, 0, 5] = 5
-
     
+def augment(width, height):
+
+    transform = A.Compose([
+        A.RandomCrop(width=width, height=height, p=1.0),
+        A.HorizontalFlip(p=1.0),
+        A.VerticalFlip(p=1.0),
+        A.Rotate(limit=[60, 300], p=1.0, interpolation=cv2.INTER_NEAREST),
+        A.RandomBrightnessContrast(brightness_limit=[-0.2, 0.3], contrast_limit=0.2, p=1.0),
+        A.OneOf([
+            A.CLAHE (clip_limit=1.5, tile_grid_size=(8, 8), p=0.5),
+            A.GridDistortion(p=0.5),
+            A.OpticalDistortion(distort_limit=1, shift_limit=0.5, interpolation=cv2.INTER_NEAREST, p=0.5),
+        ], p=1.0),
+    ], p=1.0)
+    
+    return transform
+
+def augment_dataset(count):
+
+    '''Function for data augmentation
+        Input:
+            count - total no. of images after augmentation = initial no. of images * count
+        Output:
+            writes augmented images (input images & segmentation masks) to the working directory
+    '''
+    print("augmentation running")
+
+    os.makedirs('./train/aug_images') if not os.path.exists('./train/aug_images') else print('augmented images folder already exists')
+    os.makedirs('./train/aug_masks') if not os.path.exists('./train/aug_masks') else print('augmented masks folder already exists')
+
+    # Taking training images and performing augmentation
+    images_dir = './train/images/'
+    masks_dir = './train/masks/'
+
+    file_names = np.sort(os.listdir(masks_dir))
+    file_names = np.char.split(file_names, '.')
+    filenames = np.array([])
+
+    for i in range(len(file_names)):
+        filenames = np.append(filenames, file_names[i][0])
+
+    transform_1 = augment(512, 512)
+    transform_2 = augment(480, 480)
+    transform_3 = augment(512, 512)
+    transform_4 = augment(800, 800)
+    transform_5 = augment(1024, 1024)
+    transform_6 = augment(800, 800)
+    transform_7 = augment(1600, 1600)
+    transform_8 = augment(1920, 1280)
+    
+    i = 0
+    for i in range(count):
+        for file in filenames:
+            tile = file.split('_')[4]
+            img = cv2.imread(images_dir+file+'.png')
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            mask = cv2.imread(masks_dir+file+'.png')
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
+            tile_ok = False 
+
+            if tile == '1':
+                transformed = transform_1(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='2':
+                transformed = transform_2(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='3':
+                transformed = transform_3(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='4':
+                transformed = transform_4(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='5':
+                transformed = transform_5(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='6':
+                transformed = transform_6(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='7':
+                transformed = transform_7(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+            elif tile =='8':
+                transformed = transform_8(image=img, mask=mask)
+                transformed_image = transformed['image']
+                transformed_mask = transformed['mask']
+                tile_ok = True
+
+            if tile_ok == True:     
+                cv2.imwrite('./aug_images/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB))
+                cv2.imwrite('./aug_masks/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_mask, cv2.COLOR_BGR2RGB))
 
 def main(): 
 
     # Function for creating the files datasets if needed 
     # DataPreparation()
     
+    #Funtion for data augmentation
+    count = 8 # total no. of images after augmentation = initial no. of images * count 
+    augment_dataset(count)
+
     # Function for model training if needed 
     # ModelTraining()
 
     # Function for model evaluation
-    ModelEvaluation(33)
+    # ModelEvaluation(33)
 
     
 
