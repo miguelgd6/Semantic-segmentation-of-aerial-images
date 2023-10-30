@@ -133,4 +133,5 @@ train/
 val/
 test/
 augmented_train/
+augmented_val/
 *.pth

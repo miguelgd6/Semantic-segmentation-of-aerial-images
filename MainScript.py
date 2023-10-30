@@ -138,6 +138,7 @@ def ModelTraining(train_path, val_path):
     # if images are already reorganized, instantiate datasets 
     train_ds = SegmentationDataset(path_name=train_path)
     train_dataloader = DataLoader(train_ds, batch_size=BS, shuffle=True)
+
     val_ds = SegmentationDataset(path_name=val_path)
     val_dataloader = DataLoader(val_ds, batch_size=BS, shuffle=True)
     
@@ -330,6 +331,7 @@ def augment_dataset(path, count):
         Output:
             writes augmented images (input images & segmentation masks) to the working directory
     '''
+    
     # Taking training images and performing augmentation
     images_dir = f'./{path}/images/'
     masks_dir = f'./{path}/masks/'
@@ -412,9 +414,18 @@ def augment_dataset(path, count):
                 transformed_mask = transformed['mask']
                 tile_ok = True
 
-            if tile_ok == True:     
-                cv2.imwrite('./augmented_train/images/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB))
-                cv2.imwrite('./augmented_train/masks/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_mask, cv2.COLOR_BGR2RGB))
+            if tile_ok == True: 
+                folder_imgs = f'./augmented_{path}/imgs'
+                folder_masks = f'./augmented_{path}/masks'
+
+                if not os.path.exists(folder_imgs): 
+                    os.makedirs(folder_imgs)  # print('imgs folder already exists')
+
+                if not os.path.exists(folder_masks):
+                    os.makedirs(folder_masks)  # print('masks folder already exists')
+
+                cv2.imwrite(folder_imgs + '/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB))
+                cv2.imwrite(folder_masks + '/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_mask, cv2.COLOR_BGR2RGB))
 
 def main(): 
 
@@ -424,7 +435,7 @@ def main():
     #Funtion for train data augmentation
     # count total no. of images after augmentation = initial no. of images * count 
     augment_dataset("val", count = 8)
-    #augment_dataset("train", count = 8)
+    augment_dataset("train", count = 8)
 
     # Function for model training if needed 
     ModelTraining("augmented_train", "augmented_val") # only train for not augmented dataset
