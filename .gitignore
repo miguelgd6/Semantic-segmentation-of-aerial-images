@@ -132,4 +132,5 @@ dmypy.json
 train/
 val/
 test/
+augmented_train/
 *.pth

@@ -21,7 +21,7 @@ import ssl # Needed for avoiding expired SSL certify related issues
 ssl._create_default_https_context = ssl._create_unverified_context
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-SRC_PATH = 'src_data'
+SRC_PATH = "src_data"
 DST_FOLDERS = ['train', 'test', 'val']
 EPOCHS = 50
 BS = 4
@@ -133,10 +133,10 @@ def CreatePatches(src, dest):
                 num = i * patches.shape[1] + j
                 patch.save(f"{dest}/{file_name_wo_ext}_tile_{tile_num}_patch_{num}.png")
 
-def ModelTraining():
+def ModelTraining(train_path):
 
     # if images are already reorganized, instantiate datasets 
-    train_ds = SegmentationDataset(path_name='train')
+    train_ds = SegmentationDataset(path_name=train_path)
     train_dataloader = DataLoader(train_ds, batch_size=BS, shuffle=True)
     val_ds = SegmentationDataset(path_name='val')
     val_dataloader = DataLoader(val_ds, batch_size=BS, shuffle=True)
@@ -204,7 +204,7 @@ def ModelTraining():
 
         print(f"Epoch: {e}: Train Loss: {running_train_loss}, Val Loss: {running_val_loss}")
 
-    torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict.pth")
+    torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict_{train_path}.pth")
     
     # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
     # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
@@ -330,11 +330,6 @@ def augment_dataset(count):
         Output:
             writes augmented images (input images & segmentation masks) to the working directory
     '''
-    print("augmentation running")
-
-    os.makedirs('./train/aug_images') if not os.path.exists('./train/aug_images') else print('augmented images folder already exists')
-    os.makedirs('./train/aug_masks') if not os.path.exists('./train/aug_masks') else print('augmented masks folder already exists')
-
     # Taking training images and performing augmentation
     images_dir = './train/images/'
     masks_dir = './train/masks/'
@@ -346,15 +341,26 @@ def augment_dataset(count):
     for i in range(len(file_names)):
         filenames = np.append(filenames, file_names[i][0])
 
-    transform_1 = augment(512, 512)
-    transform_2 = augment(480, 480)
-    transform_3 = augment(512, 512)
-    transform_4 = augment(800, 800)
-    transform_5 = augment(1024, 1024)
-    transform_6 = augment(800, 800)
-    transform_7 = augment(1600, 1600)
-    transform_8 = augment(1920, 1280)
+    # this is the kaggle augment function, probably the sizes of the images, as when pathing the sizes
+    #transform_1 = augment(512, 512)
+    #transform_2 = augment(480, 480)
+    #transform_3 = augment(512, 512)
+    #transform_4 = augment(800, 800)
+    #transform_5 = augment(1024, 1024)
+    #transform_6 = augment(800, 800)
+    #transform_7 = augment(1600, 1600)
+    #transform_8 = augment(1920, 1280)
     
+    # data sized changed during training 
+    transform_1 = augment(320, 320)
+    transform_2 = augment(320, 320)
+    transform_3 = augment(320, 320)
+    transform_4 = augment(320, 320)
+    transform_5 = augment(320, 320)
+    transform_6 = augment(320, 320)
+    transform_7 = augment(320, 320)
+    transform_8 = augment(320, 320)
+
     i = 0
     for i in range(count):
         for file in filenames:
@@ -407,20 +413,20 @@ def augment_dataset(count):
                 tile_ok = True
 
             if tile_ok == True:     
-                cv2.imwrite('./aug_images/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB))
-                cv2.imwrite('./aug_masks/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_mask, cv2.COLOR_BGR2RGB))
+                cv2.imwrite('./augmented_train/images/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB))
+                cv2.imwrite('./augmented_train/masks/aug_{}_'.format(str(i+1))+file+'.png',cv2.cvtColor(transformed_mask, cv2.COLOR_BGR2RGB))
 
 def main(): 
 
-    # Function for creating the files datasets if needed 
+    # Function for creating patches and generating test-train-val Splits 
     # DataPreparation()
     
-    #Funtion for data augmentation
-    count = 8 # total no. of images after augmentation = initial no. of images * count 
-    augment_dataset(count)
+    #Funtion for train data augmentation
+    # count = 8 # total no. of images after augmentation = initial no. of images * count 
+    # augment_dataset(count)
 
     # Function for model training if needed 
-    # ModelTraining()
+    ModelTraining("augmented_train") # only train for not augmented dataset
 
     # Function for model evaluation
     # ModelEvaluation(33)
