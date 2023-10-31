@@ -210,7 +210,7 @@ def ModelTraining(train_path, val_path):
     # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
     # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
 
-def ModelEvaluation(img_index): 
+def ModelEvaluation(img_index, savedModelName): 
 
     # Dataset and Dataloader
     test_ds = SegmentationDataset(path_name='test')
@@ -229,7 +229,7 @@ def ModelEvaluation(img_index):
     model.to(DEVICE)
 
     # load weights
-    model.load_state_dict(torch.load('models/FPN_epochs_50_CEloss_statedict.pth'))
+    model.load_state_dict(torch.load(f'models/{savedModelName}'))
 
     # Model Evaluation
     pixel_accuracies = [] 
@@ -415,7 +415,7 @@ def augment_dataset(path, count):
                 tile_ok = True
 
             if tile_ok == True: 
-                folder_imgs = f'./augmented_{path}/imgs'
+                folder_imgs = f'./augmented_{path}/images'
                 folder_masks = f'./augmented_{path}/masks'
 
                 if not os.path.exists(folder_imgs): 
@@ -434,14 +434,14 @@ def main():
     
     #Funtion for train data augmentation
     # count total no. of images after augmentation = initial no. of images * count 
-    augment_dataset("val", count = 8)
-    augment_dataset("train", count = 8)
+    # augment_dataset("val", count = 8)
+    # augment_dataset("train", count = 8)
 
     # Function for model training if needed 
-    ModelTraining("augmented_train", "augmented_val") # only train for not augmented dataset
+    # ModelTraining("augmented_train", "augmented_val") # only train for not augmented dataset
 
     # Function for model evaluation
-    # ModelEvaluation(33)
+    ModelEvaluation(33, "FPN_epochs_50_CEloss_statedict_augmented_train.pth")
 
     
 
