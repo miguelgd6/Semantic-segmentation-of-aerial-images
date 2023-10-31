@@ -144,7 +144,7 @@ def ModelTraining(train_path, val_path):
     
     # instantiate model and define hyperparameter 
     model = smp.FPN(
-        encoder_name='se_resnext50_32x4d', 
+        encoder_name='inceptionresnetv2', 
         encoder_weights='imagenet',     
         classes=6, 
         activation='sigmoid'
@@ -205,12 +205,12 @@ def ModelTraining(train_path, val_path):
 
         print(f"Epoch: {e}: Train Loss: {running_train_loss}, Val Loss: {running_val_loss}")
 
-    torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict_{train_path}.pth")
+    torch.save(model.state_dict(), f"models/FPN_epochs_{EPOCHS}_CEloss_statedict_{train_path}_inceptionresnetv2.pth")
     
     # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
     # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
 
-def ModelEvaluation(img_index, savedModelName): 
+def ModelEvaluation(img_index, encoder, savedModelName): 
 
     # Dataset and Dataloader
     test_ds = SegmentationDataset(path_name='test')
@@ -221,7 +221,7 @@ def ModelEvaluation(img_index, savedModelName):
 
     # Model setup
     model = smp.FPN(
-        encoder_name='se_resnext50_32x4d', 
+        encoder_name=encoder, 
         encoder_weights='imagenet', 
         classes=6, 
         activation='sigmoid',
@@ -441,7 +441,9 @@ def main():
     # ModelTraining("augmented_train", "augmented_val") # only train for not augmented dataset
 
     # Function for model evaluation
-    ModelEvaluation(33, "FPN_epochs_50_CEloss_statedict_augmented_train.pth")
+    ModelEvaluation(33, "inceptionresnetv2","FPN_epochs_50_CEloss_statedict_augmented_train_inceptionresnetv2.pth")
+    ModelEvaluation(33, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict_augmented_train.pth")
+    ModelEvaluation(33, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict.pth")
 
     
 
