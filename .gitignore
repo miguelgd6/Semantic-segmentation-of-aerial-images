@@ -134,4 +134,5 @@ val/
 test/
 augmented_train/
 augmented_val/
+images_predicted/
 *.pth

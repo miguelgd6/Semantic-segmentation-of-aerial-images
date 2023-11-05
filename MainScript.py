@@ -16,6 +16,7 @@ import torchmetrics
 import albumentations as A
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from tensorboardX import SummaryWriter
 
 import ssl # Needed for avoiding expired SSL certify related issues 
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -165,6 +166,7 @@ def ModelTraining(train_path, val_path):
     for e in range(EPOCHS):
         model.train()
         running_train_loss, running_val_loss = 0, 0
+
         for i, data in enumerate(train_dataloader): 
             #training phase 
             image_i, mask_i = data
@@ -210,7 +212,7 @@ def ModelTraining(train_path, val_path):
     # sns.lineplot(x = range(len(train_losses)), y = train_losses).set('Train Loss')
     # sns.lineplot(x = range(len(val_losses)), y = val_losses).set('Val Loss')
 
-def ModelEvaluation(img_index, encoder, savedModelName): 
+def ModelEvaluation(ev_imgs, encoder, savedModelName): 
 
     # Dataset and Dataloader
     test_ds = SegmentationDataset(path_name='test')
@@ -233,8 +235,13 @@ def ModelEvaluation(img_index, encoder, savedModelName):
 
     # Model Evaluation
     pixel_accuracies = [] 
+    accuracies = []
     intersection_over_unions = []
+    dice_coefs = []
+
     metric_iou = torchmetrics.JaccardIndex(num_classes=6, task='multiclass').to(DEVICE)
+    metric_dice = torchmetrics.Dice(num_classes=6, average='micro').to(DEVICE)
+    metric_accuracy = torchmetrics.Accuracy(num_classes=6, task='multiclass').to(DEVICE)
 
     with torch.no_grad():
         for data in test_dataloader:
@@ -248,41 +255,79 @@ def ModelEvaluation(img_index, encoder, savedModelName):
             _, predicted = torch.max(pred, 1) 
             correct_pixels = (masks_test == predicted).sum().item()
             total_pixels = masks_test.size(1) * masks_test.size(2)
-            pixel_accuracies.append(correct_pixels / total_pixels)
             iou = metric_iou(predicted.float(), masks_test).item()
+            dice = metric_dice(predicted, masks_test.int()).item()
+            accuracy = metric_accuracy(predicted, masks_test.int()).item()
+
+            pixel_accuracies.append(correct_pixels / total_pixels)
+            accuracies.append(accuracy)
             intersection_over_unions.append(iou)
+            dice_coefs.append(dice)
 
     # Median Accuracy
     print(f"Median Pixel Accuracy: {np.median(pixel_accuracies) * 100 }")
     print(f"Median IoU: {np.median(intersection_over_unions) * 100 }")
+    print(f"Median DICE: {np.median(dice_coefs) * 100 }")
+    print(f"Median TM Accuracy: {np.median(accuracies) * 100 }")
 
-    # showing specific image
+    # Epochs 
+
+    # showing specific images
+    imgs_list = []
+    aux_list = []
+
     test_dataloader = DataLoader(test_ds, batch_size=1, shuffle=False)
-    for index, data in enumerate(test_dataloader):
-        if index == img_index:
-             image_test, mask = data
+    
+    for n in ev_imgs: 
+        for index, data in enumerate(test_dataloader):
+            if index == n:
+                image_test, mask = data
         
-    with torch.no_grad():
-        image_test = image_test.float().to(DEVICE)
-        output = model(image_test)
+        with torch.no_grad():
+            image_test = image_test.float().to(DEVICE)
+            output = model(image_test)
 
-    img_og = np.transpose(image_test[0, :, :, :].cpu().numpy(), (1, 2, 0))
-    mask_og = mask[0, :, :]
+        img_og = np.transpose(image_test[0, :, :, :].cpu().numpy(), (1, 2, 0))
+        mask_og = mask[0, :, :]
 
-    predicted_mask = output.cpu().squeeze().numpy()
-    predicted_mask = predicted_mask.transpose((1, 2, 0))
-    predicted_mask = predicted_mask.argmax(axis=2)
-     
-    fig, axs = plt.subplots(nrows=1, ncols=2)
-    fig.suptitle('True and Predicted Mask')
-    
-    axs[0].imshow(mask_og)
-    axs[1].imshow(predicted_mask)
+        predicted_mask = output.cpu().squeeze().numpy()
+        predicted_mask = predicted_mask.transpose((1, 2, 0))
+        predicted_mask = predicted_mask.argmax(axis=2)
+        
+        aux_list = [img_og, mask_og, predicted_mask]
+        imgs_list.append(aux_list) 
 
-    axs[0].set_title(f"reference mask:")
-    axs[1].set_title(f"predicted mask:")
-    
-    plt.show()
+    count = 0 
+    for imgs in imgs_list:
+
+        count += 1
+
+        fig = plt.figure(figsize=(20,8))
+
+        # ax1 = fig.add_subplot(1,3,1)
+        # ax1.imshow(imgs[0])
+        # ax1.set_title('Input Image', fontdict={'fontsize': 16, 'fontweight': 'medium'})
+        # ax1.grid(False)
+
+        ax2 = fig.add_subplot(1,3,1)
+        ax2.set_title('Ground Truth Mask', fontdict={'fontsize': 16, 'fontweight': 'medium'})
+        ax2.imshow(imgs[1]) # ax2.imshow(onehot_to_rgb(imgs[1],id2code))
+        ax2.grid(False)
+
+        ax3 = fig.add_subplot(1,3,2)
+        ax3.set_title('Predicted Mask', fontdict={'fontsize': 16, 'fontweight': 'medium'})
+        ax3.imshow(imgs[2]) # ax3.imshow(onehot_to_rgb(imgs[2],id2code))
+        ax3.grid(False)
+
+        saving_folder = f'images_predicted/{savedModelName}'
+
+        if not os.path.exists(saving_folder): 
+            os.makedirs(saving_folder)  # print('imgs folder already exists') 
+
+        plt.savefig(f"{saving_folder}/prediction_{format(count)}.png", facecolor= 'w', transparent= False, bbox_inches= 'tight', dpi= 200)
+        #plt.show()
+
+        
 
     #
     # output_cpu = output_cpu.transpose((1, 2, 3, 0)) # transpose just reorganize dimensions 
@@ -441,9 +486,10 @@ def main():
     # ModelTraining("augmented_train", "augmented_val") # only train for not augmented dataset
 
     # Function for model evaluation
-    ModelEvaluation(33, "inceptionresnetv2","FPN_epochs_50_CEloss_statedict_augmented_train_inceptionresnetv2.pth")
-    ModelEvaluation(33, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict_augmented_train.pth")
-    ModelEvaluation(33, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict.pth")
+    num_ev = np.arange(0, 35) #[31, 32, 33]
+    ModelEvaluation(num_ev, "inceptionresnetv2","FPN_epochs_50_CEloss_statedict_augmented_train_inceptionresnetv2.pth")
+    #ModelEvaluation(num_ev, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict_augmented_train.pth")
+    # ModelEvaluation(num_ev, "se_resnext50_32x4d","FPN_epochs_50_CEloss_statedict.pth")
 
     
 
